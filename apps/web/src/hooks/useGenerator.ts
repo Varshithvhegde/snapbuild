@@ -1,0 +1,1036 @@
+import { useRef, useCallback } from "react";
+import type { Dispatch, SetStateAction } from "react";
+import { WebAppGenerator } from "../lib/generator";
+import { createOpenAIGenerator } from "../lib/client";
+import { useConversationStore } from "../store/conversation";
+import { useSettingsStore } from "../store/settings";
+import { useSandpackStore } from "../store/sandpack";
+import {
+  SEARCH_TOOLS,
+  WEB_READER_TOOL,
+  createSearchToolHandler,
+  createJinaReaderHandler,
+} from "../lib/search";
+import {
+  ASSET_SEARCH_TOOLS,
+  createAssetSearchToolHandler,
+} from "../lib/assetSearch";
+import { NPM_SEARCH_TOOLS, createNpmSearchToolHandler } from "../lib/npmSearch";
+import {
+  MEMORY_TOOLS,
+  MEMORY_TOOL_NAME,
+  createMemoryToolHandler,
+  buildMemoryPromptSection,
+} from "../lib/memory";
+import { getBuiltinSearchConfig, modelSupportsVision } from "../lib/ai-provider";
+import { expandUserMessagesForAPI } from "../lib/userMessageImages";
+import { expandUserMessagesForAPIWithElements } from "../lib/userMessageElements";
+import { detectSandpackTemplate } from "../lib/detectTemplate";
+import { repairStaticSiteFiles } from "../lib/staticSiteRepair";
+import {
+  serializeSelectedElement,
+  type PreviewElementSelection,
+} from "../lib/previewElementPicker";
+import { useSnapshotStore } from "../store/snapshot";
+import { mergeMessages } from "../lib/mergeMessages";
+import { compressContext as doCompress } from "../lib/compressContext";
+import { generateSmartTitle } from "../lib/smartTitle";
+import { DEFAULT_TITLE } from "../store/conversation";
+import type {
+  Message,
+  ContentPart,
+  Conversation,
+  ProjectFiles,
+  AISettings,
+  WebSearchSettings,
+  AssetSearchSettings,
+  Attachment,
+} from "../types";
+
+const isErrorMessage = (m: Message) =>
+  m.role === "assistant" &&
+  typeof m.content === "string" &&
+  m.content.startsWith("⚠️");
+
+const removeErrorMessages = (prev: Message[]) =>
+  prev.filter((m) => !isErrorMessage(m));
+
+/** Re-inject AI image instructions for API calls (hidden from chat UI). */
+function expandUserMessagesForAPIWithSettings(
+  messages: Message[],
+  settings: AISettings,
+): Message[] {
+  return expandUserMessagesForAPIWithElements(
+    expandUserMessagesForAPI(
+      messages,
+      modelSupportsVision(settings.apiType, settings.model),
+    ),
+  );
+}
+
+/**
+ * Filter out memory-related messages from the message array.
+ * Memory messages are:
+ *  - assistant messages where tool_calls contains manage_memories
+ *  - tool result messages with tool_call_ids matching manage_memories calls
+ *
+ * If an assistant message has BOTH text content AND memory tool_calls,
+ * keep the text but strip the memory tool_calls.
+ */
+function filterMemoryMessages(messages: Message[]): Message[] {
+  // First pass: collect all manage_memories tool_call IDs
+  const memoryToolCallIds = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role === "assistant" && msg.tool_calls) {
+      for (const tc of msg.tool_calls) {
+        if (tc.function.name === MEMORY_TOOL_NAME) {
+          memoryToolCallIds.add(tc.id);
+        }
+      }
+    }
+  }
+
+  if (memoryToolCallIds.size === 0) return messages;
+
+  // Second pass: filter
+  const result: Message[] = [];
+  for (const msg of messages) {
+    // Skip tool result messages for memory operations
+    if (
+      msg.role === "tool" &&
+      msg.tool_call_id &&
+      memoryToolCallIds.has(msg.tool_call_id)
+    ) {
+      continue;
+    }
+
+    if (msg.role === "assistant" && msg.tool_calls) {
+      const nonMemoryToolCalls = msg.tool_calls.filter(
+        (tc) => tc.function.name !== MEMORY_TOOL_NAME,
+      );
+
+      if (nonMemoryToolCalls.length === 0) {
+        // All tool_calls were memory operations
+        if (msg.content) {
+          // Keep the text content, remove tool_calls
+          result.push({ ...msg, tool_calls: undefined });
+        }
+        // If no content either, skip the entire message
+        continue;
+      }
+
+      // Some tool_calls were non-memory — keep those
+      result.push({ ...msg, tool_calls: nonMemoryToolCalls });
+      continue;
+    }
+
+    result.push(msg);
+  }
+
+  return result;
+}
+
+/** Apply compression: return summary + messages after compression point */
+function getMessagesForAPI(conv: Conversation, settings: AISettings): Message[] {
+  const ctx = conv.compressedContext;
+  const base = expandUserMessagesForAPIWithSettings(
+    removeErrorMessages(conv.messages),
+    settings,
+  );
+  if (!ctx) return base;
+  const recent = expandUserMessagesForAPIWithSettings(
+    removeErrorMessages(conv.messages.slice(ctx.fromIndex)),
+    settings,
+  );
+  console.log(
+    "[compress-debug] fromIndex:",
+    ctx.fromIndex,
+    "total:",
+    conv.messages.length,
+    "recent:",
+    recent.length,
+    "summary:",
+    ctx.summary.slice(0, 60),
+  );
+  return [
+    {
+      role: "user",
+      content: `[Previous conversation summary]\n${ctx.summary}`,
+    },
+    {
+      role: "assistant",
+      content:
+        "Understood. I'll continue based on the conversation summary above.",
+    },
+    ...recent,
+  ];
+}
+
+/** Create a snapshot for the current conversation state */
+function createSnapshotForCurrentState() {
+  const state = useConversationStore.getState();
+  const conv = state.activeId ? state.conversations[state.activeId] : null;
+  if (!conv || Object.keys(conv.files).length === 0) return;
+  const merged = mergeMessages(conv.messages);
+  for (let i = merged.length - 1; i >= 0; i--) {
+    if (merged[i].role === "assistant") {
+      useSnapshotStore
+        .getState()
+        .createSnapshot(conv.id, merged[i].id, conv.files);
+      return;
+    }
+  }
+}
+
+interface UseGeneratorOptions {
+  settings: AISettings;
+  webSearchSettings: WebSearchSettings;
+  assetSearchSettings: AssetSearchSettings;
+  files: ProjectFiles;
+  setMessages: Dispatch<SetStateAction<Message[]>>;
+  setFiles: Dispatch<SetStateAction<ProjectFiles>>;
+  setIsGenerating: Dispatch<SetStateAction<boolean>>;
+  setTemplate: Dispatch<SetStateAction<string>>;
+  restartSandpack: () => void;
+  setIsProjectInitialized: Dispatch<SetStateAction<boolean>>;
+}
+
+export function useGenerator({
+  settings,
+  webSearchSettings,
+  assetSearchSettings,
+  files,
+  setMessages,
+  setFiles,
+  setIsGenerating,
+  setTemplate,
+  restartSandpack,
+  setIsProjectInitialized,
+}: UseGeneratorOptions) {
+  const generatorRef = useRef<WebAppGenerator | null>(null);
+  const activeId = useConversationStore((s) => s.activeId);
+  const prevActiveIdRef = useRef(activeId);
+  const textBufferRef = useRef("");
+  const thinkingBufferRef = useRef("");
+  const typewriterTimerRef = useRef<number | null>(null);
+  const thinkingTimerRef = useRef<number | null>(null);
+  const lastCharTimeRef = useRef(0);
+  const lastThinkingTimeRef = useRef(0);
+
+  /** Flush all remaining thinking buffer content at once */
+  const flushThinkingBuffer = () => {
+    if (thinkingTimerRef.current) {
+      cancelAnimationFrame(thinkingTimerRef.current);
+      thinkingTimerRef.current = null;
+    }
+    if (thinkingBufferRef.current) {
+      const remaining = thinkingBufferRef.current;
+      thinkingBufferRef.current = "";
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.role === "assistant") {
+          return [
+            ...prev.slice(0, -1),
+            { ...last, thinking: (last.thinking || "") + remaining },
+          ];
+        }
+        return prev;
+      });
+    }
+  };
+
+  const getGenerator = useCallback(() => {
+    if (!settings.apiKey || !settings.apiBaseUrl || !settings.model)
+      return null;
+
+    // Invalidate on conversation switch
+    if (prevActiveIdRef.current !== activeId) {
+      generatorRef.current = null;
+      prevActiveIdRef.current = activeId;
+    }
+
+    // Invalidate if settings changed
+    if (generatorRef.current) {
+      const g = generatorRef.current as any;
+      if (
+        g._apiType !== settings.apiType ||
+        g._apiKey !== settings.apiKey ||
+        g._apiBaseUrl !== settings.apiBaseUrl ||
+        g._model !== settings.model ||
+        g._searchEngine !== webSearchSettings.engine ||
+        g._firecrawlKey !== webSearchSettings.firecrawlApiKey ||
+        g._assetEngine !== assetSearchSettings.engine ||
+        g._pixabayKey !== assetSearchSettings.pixabayApiKey
+      ) {
+        generatorRef.current = null;
+      }
+    }
+
+    if (!generatorRef.current) {
+      const isBuiltinSearch = webSearchSettings.engine === "builtin";
+      const webConfigured =
+        !isBuiltinSearch && useSettingsStore.getState().isWebSearchConfigured();
+      const assetConfigured = useSettingsStore
+        .getState()
+        .isAssetSearchConfigured();
+
+      // For builtin search: get provider-managed config + Jina reader
+      // For tavily/firecrawl: use custom search handler as before
+      let builtinSearchTools: Record<string, unknown> = {};
+      let providerToolNames: string[] = [];
+      if (isBuiltinSearch) {
+        const builtinConfig = getBuiltinSearchConfig({
+          apiType: settings.apiType,
+          apiBaseUrl: settings.apiBaseUrl,
+          apiKey: settings.apiKey,
+          model: settings.model,
+        });
+        if (builtinConfig) {
+          builtinSearchTools = builtinConfig.tools || {};
+          providerToolNames = builtinConfig.providerToolNames;
+        }
+      }
+
+      const searchHandler = webConfigured
+        ? createSearchToolHandler(webSearchSettings)
+        : undefined;
+      const jinaReaderHandler = isBuiltinSearch
+        ? createJinaReaderHandler()
+        : undefined;
+      const assetSearchHandler = assetConfigured
+        ? createAssetSearchToolHandler(assetSearchSettings)
+        : undefined;
+      const memoryHandler = createMemoryToolHandler();
+      const npmSearchHandler = createNpmSearchToolHandler();
+
+      const combinedToolHandler = async (
+        name: string,
+        args: unknown,
+      ): Promise<string> => {
+        if (name === "get_console_logs") {
+          const { consoleLogs } = useSandpackStore.getState();
+          if (consoleLogs.length === 0) return "No console output yet.";
+          return consoleLogs
+            .map((log) => {
+              const data = log.data
+                .map((d) => (typeof d === "string" ? d : JSON.stringify(d)))
+                .join(" ");
+              return `[${log.method.toUpperCase()}] ${data}`;
+            })
+            .join("\n");
+        }
+        if (name === MEMORY_TOOL_NAME) {
+          return memoryHandler(name, args);
+        }
+        if (
+          name === "search_npm_packages" ||
+          name === "get_npm_package_detail"
+        ) {
+          return npmSearchHandler(name, args);
+        }
+        if (name === "image_search" && assetSearchHandler) {
+          return assetSearchHandler(name, args);
+        }
+        if (name === "web_reader" && jinaReaderHandler) {
+          return jinaReaderHandler(name, args);
+        }
+        if (searchHandler) return searchHandler(name, args);
+        return `Error: unknown tool "${name}"`;
+      };
+
+      generatorRef.current = createOpenAIGenerator(
+        {
+          apiType: settings.apiType,
+          apiKey: settings.apiKey,
+          apiBaseUrl: settings.apiBaseUrl,
+          model: settings.model,
+          stream: true,
+          providerToolNames,
+        },
+        {
+          onText: (delta) => {
+            // First text-delta means thinking is complete — flush remaining thinking at once
+            flushThinkingBuffer();
+            textBufferRef.current += delta;
+            if (!typewriterTimerRef.current) {
+              const typeChar = (timestamp: number) => {
+                if (timestamp - lastCharTimeRef.current >= 20) {
+                  if (textBufferRef.current.length > 0) {
+                    const char = textBufferRef.current[0];
+                    textBufferRef.current = textBufferRef.current.slice(1);
+                    setMessages((prev) => {
+                      const last = prev[prev.length - 1];
+                      if (last?.role === "assistant") {
+                        return [
+                          ...prev.slice(0, -1),
+                          {
+                            ...last,
+                            content:
+                              ((typeof last.content === "string"
+                                ? last.content
+                                : "") || "") + char,
+                          },
+                        ];
+                      }
+                      return [...prev, { role: "assistant", content: char }];
+                    });
+                    lastCharTimeRef.current = timestamp;
+                  }
+                }
+                if (
+                  textBufferRef.current.length > 0 ||
+                  typewriterTimerRef.current
+                ) {
+                  typewriterTimerRef.current = requestAnimationFrame(typeChar);
+                } else {
+                  typewriterTimerRef.current = null;
+                }
+              };
+              typewriterTimerRef.current = requestAnimationFrame(typeChar);
+            }
+          },
+          onThinking: (delta) => {
+            thinkingBufferRef.current += delta;
+            if (!thinkingTimerRef.current) {
+              const typeThinking = (timestamp: number) => {
+                if (timestamp - lastThinkingTimeRef.current >= 20) {
+                  if (thinkingBufferRef.current.length > 0) {
+                    const char = thinkingBufferRef.current[0];
+                    thinkingBufferRef.current =
+                      thinkingBufferRef.current.slice(1);
+                    setMessages((prev) => {
+                      const last = prev[prev.length - 1];
+                      if (last?.role === "assistant") {
+                        return [
+                          ...prev.slice(0, -1),
+                          { ...last, thinking: (last.thinking || "") + char },
+                        ];
+                      }
+                      return [
+                        ...prev,
+                        { role: "assistant", content: null, thinking: char },
+                      ];
+                    });
+                    lastThinkingTimeRef.current = timestamp;
+                  }
+                }
+                if (
+                  thinkingBufferRef.current.length > 0 ||
+                  thinkingTimerRef.current
+                ) {
+                  thinkingTimerRef.current =
+                    requestAnimationFrame(typeThinking);
+                } else {
+                  thinkingTimerRef.current = null;
+                }
+              };
+              thinkingTimerRef.current = requestAnimationFrame(typeThinking);
+            }
+          },
+          onToolCall: (name, id) => {
+            // Thinking is complete when tool calls arrive — flush remaining thinking at once
+            flushThinkingBuffer();
+            // Flush text buffer before tool call to prevent text insertion issues
+            if (typewriterTimerRef.current) {
+              cancelAnimationFrame(typewriterTimerRef.current);
+              typewriterTimerRef.current = null;
+            }
+            if (textBufferRef.current) {
+              const remainingText = textBufferRef.current;
+              textBufferRef.current = "";
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (last?.role === "assistant") {
+                  return [
+                    ...prev.slice(0, -1),
+                    {
+                      ...last,
+                      content:
+                        ((typeof last.content === "string"
+                          ? last.content
+                          : "") || "") + remainingText,
+                    },
+                  ];
+                }
+                return prev;
+              });
+            }
+
+            const actualId =
+              id || `call_${Math.random().toString(36).substring(2, 11)}`;
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              const newToolCall = {
+                id: actualId,
+                type: "function" as const,
+                function: { name, arguments: "" },
+              };
+              if (last?.role === "assistant") {
+                if (last.tool_calls?.some((tc) => tc.id === actualId))
+                  return prev;
+                return [
+                  ...prev.slice(0, -1),
+                  {
+                    ...last,
+                    tool_calls: [...(last.tool_calls || []), newToolCall],
+                  },
+                ];
+              }
+              // No assistant message yet (model returned tool calls without text).
+              // Create one so onToolResult can find the matching tool call later.
+              return [
+                ...prev,
+                {
+                  role: "assistant" as const,
+                  content: null,
+                  tool_calls: [newToolCall],
+                },
+              ];
+            });
+          },
+          onToolResult: (_name, _args, result) => {
+            setMessages((prev) => {
+              const msgs = [...prev];
+              for (let i = msgs.length - 1; i >= 0; i--) {
+                if (msgs[i].role === "assistant" && msgs[i].tool_calls) {
+                  const toolCallIndex = msgs[i].tool_calls!.findIndex(
+                    (tc) =>
+                      !msgs.some(
+                        (m) => m.role === "tool" && m.tool_call_id === tc.id,
+                      ),
+                  );
+                  if (toolCallIndex !== -1) {
+                    const toolCall = msgs[i].tool_calls![toolCallIndex];
+                    // Update the tool call's arguments so the UI can display correct info
+                    const updatedToolCalls = [...msgs[i].tool_calls!];
+                    updatedToolCalls[toolCallIndex] = {
+                      ...toolCall,
+                      function: {
+                        ...toolCall.function,
+                        arguments: JSON.stringify(_args),
+                      },
+                    };
+                    const updatedMsgs = [...msgs];
+                    updatedMsgs[i] = {
+                      ...msgs[i],
+                      tool_calls: updatedToolCalls,
+                    };
+                    return [
+                      ...updatedMsgs,
+                      {
+                        role: "tool",
+                        content: result,
+                        tool_call_id: toolCall.id,
+                      },
+                    ];
+                  }
+                  break;
+                }
+              }
+              // If not found, we shouldn't add an empty tool_call_id, but rather discard or warn,
+              // since OpenAI API rejects empty tool_call_id strings.
+              // Just to be safe, if we somehow don't find it, we skip appending or use a dummy ID.
+              // However, since it only gets emitted from the parser, it should always have an ID.
+              // Let's log a warning but still append to avoid losing the result, except we MUST have a valid ID.
+              console.warn(
+                "Couldn't find matching tool call for result:",
+                _name,
+              );
+              return prev;
+            });
+          },
+          onFileChange: (newFiles, fileChanges) => {
+            const repaired = repairStaticSiteFiles(newFiles);
+            setFiles(repaired);
+            const detected = detectSandpackTemplate(newFiles);
+            const store = useConversationStore.getState();
+            const conv = store.activeId
+              ? store.conversations[store.activeId]
+              : null;
+            const currentTemplate = conv?.template ?? "vite-react-ts";
+            const templateChanged = detected !== currentTemplate;
+            if (templateChanged) {
+              setTemplate(detected);
+            }
+            const htmlTouched = fileChanges?.some(
+              (c) =>
+                c.path === "index.html" ||
+                c.path === "/index.html" ||
+                c.path.endsWith(".html") ||
+                c.path.endsWith(".css"),
+            );
+            if (htmlTouched || templateChanged) {
+              restartSandpack();
+            }
+          },
+          onTemplateChange: (tmpl, newFiles) => {
+            setTemplate(tmpl);
+            setFiles(newFiles);
+            setIsProjectInitialized(true);
+            restartSandpack();
+          },
+          onDependenciesChange: (newFiles) => {
+            setFiles(newFiles);
+            restartSandpack();
+          },
+          onComplete: () => {
+            if (typewriterTimerRef.current) {
+              cancelAnimationFrame(typewriterTimerRef.current);
+              typewriterTimerRef.current = null;
+            }
+            flushThinkingBuffer();
+            if (textBufferRef.current) {
+              const remainingText = textBufferRef.current;
+              textBufferRef.current = "";
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (last?.role === "assistant") {
+                  return [
+                    ...prev.slice(0, -1),
+                    {
+                      ...last,
+                      content:
+                        ((typeof last.content === "string"
+                          ? last.content
+                          : "") || "") + remainingText,
+                    },
+                  ];
+                }
+                return prev;
+              });
+            }
+            createSnapshotForCurrentState();
+
+            // Smart naming: generate title if still using default
+            const convState = useConversationStore.getState();
+            const conv = convState.activeId
+              ? convState.conversations[convState.activeId]
+              : null;
+            if (conv && conv.title === DEFAULT_TITLE) {
+              generateSmartTitle(
+                conv.messages,
+                settings.apiType,
+                settings.apiBaseUrl,
+                settings.apiKey,
+                settings.model,
+              )
+                .then((title) => {
+                  if (title) {
+                    const current = useConversationStore.getState();
+                    const currentConv = current.conversations[conv.id];
+                    if (currentConv && currentConv.title === DEFAULT_TITLE) {
+                      useConversationStore
+                        .getState()
+                        .renameConversation(conv.id, title);
+                    }
+                  }
+                })
+                .catch(() => {
+                  // Silently ignore smart naming failures
+                });
+            }
+          },
+          onError: (error) => {
+            console.error("Generation error:", error);
+          },
+          onRetry: (attempt, maxAttempts, error) => {
+            console.warn(
+              `Retrying API request (${attempt}/${maxAttempts}):`,
+              error.message,
+            );
+            // Clear partial assistant message from the failed attempt
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.role === "assistant") {
+                return prev.slice(0, -1);
+              }
+              return prev;
+            });
+          },
+          onPatchRecovery: (recoveryContent) => {
+            textBufferRef.current = "";
+            if (typewriterTimerRef.current) {
+              cancelAnimationFrame(typewriterTimerRef.current);
+              typewriterTimerRef.current = null;
+            }
+            setMessages((prev) => {
+              let msgs = [...prev];
+              const last = msgs[msgs.length - 1];
+              if (last?.role === "assistant" && !last.tool_calls?.length) {
+                msgs = msgs.slice(0, -1);
+              }
+              return [...msgs, { role: "user" as const, content: recoveryContent }];
+            });
+          },
+          onCompact: async () => {
+            const s = useConversationStore.getState();
+            const conv = s.activeId ? s.conversations[s.activeId] : null;
+            if (!conv) return null;
+            const result = await doCompress(
+              conv.messages,
+              settings.apiType,
+              settings.apiBaseUrl,
+              settings.apiKey,
+              settings.model,
+              conv.compressedContext,
+            );
+            if (!result) return null;
+            useConversationStore.getState().setCompressedContext(result);
+            return getMessagesForAPI({ ...conv, compressedContext: result }, settings);
+          },
+        },
+        files,
+        {
+          ...(webConfigured ? SEARCH_TOOLS : {}),
+          ...builtinSearchTools,
+          ...(isBuiltinSearch ? WEB_READER_TOOL : {}),
+          ...(assetConfigured ? ASSET_SEARCH_TOOLS : {}),
+          ...NPM_SEARCH_TOOLS,
+          ...MEMORY_TOOLS,
+        },
+        combinedToolHandler,
+      );
+
+      // Store config markers for invalidation comparison
+      const gen = generatorRef.current as any;
+      gen._apiType = settings.apiType;
+      gen._apiKey = settings.apiKey;
+      gen._apiBaseUrl = settings.apiBaseUrl;
+      gen._model = settings.model;
+      gen._searchEngine = webSearchSettings.engine;
+      gen._firecrawlKey = webSearchSettings.firecrawlApiKey;
+      gen._assetEngine = assetSearchSettings.engine;
+      gen._pixabayKey = assetSearchSettings.pixabayApiKey;
+    }
+
+    return generatorRef.current;
+  }, [
+    settings,
+    webSearchSettings,
+    assetSearchSettings,
+    files,
+    activeId,
+    setMessages,
+    setFiles,
+    setTemplate,
+    setIsProjectInitialized,
+    restartSandpack,
+  ]);
+
+  const generate = useCallback(
+    async (
+      prompt: string,
+      attachments?: Attachment[],
+      displayText?: string,
+      selectedElements?: PreviewElementSelection[],
+    ) => {
+      setIsGenerating(true);
+
+      const visibleText = displayText ?? prompt;
+      const hasAttachments = attachments && attachments.length > 0;
+      const hasElements = selectedElements && selectedElements.length > 0;
+
+      // Build message content: multi-part if attachments/elements present, plain string otherwise
+      let content: string | ContentPart[];
+      if (hasAttachments || hasElements) {
+        const parts: ContentPart[] = [];
+        if (visibleText) parts.push({ type: "text", text: visibleText });
+        if (hasElements) {
+          for (const el of selectedElements) {
+            parts.push({
+              type: "text",
+              text: serializeSelectedElement(el),
+            });
+          }
+        }
+        if (hasAttachments) {
+          for (const att of attachments) {
+            if (att.type === "image") {
+              parts.push({ type: "text", text: `[Image: ${att.name}]` });
+              parts.push({ type: "image_url", image_url: { url: att.content } });
+            } else {
+              parts.push({
+                type: "text",
+                text: `[File: ${att.name} | ${att.size}]\n${att.content}`,
+              });
+            }
+          }
+        }
+        content = parts;
+      } else {
+        content = visibleText;
+      }
+
+      // Get generator and sync its messages with the store BEFORE adding the new user message.
+      // This ensures the generator has the full conversation history even if it was recreated
+      // (e.g. after page refresh, settings change, or conversation switch).
+      const generator = getGenerator();
+      if (generator) {
+        generator.setFiles(files);
+
+        const storeState = useConversationStore.getState();
+        const activeConv = storeState.activeId
+          ? storeState.conversations[storeState.activeId]
+          : null;
+        if (activeConv) {
+          generator.syncMessages(getMessagesForAPI(activeConv, settings));
+        }
+        // Inject current memory context into system prompt
+        generator.setSystemPromptSuffix(buildMemoryPromptSection());
+      }
+
+      setMessages((prev) => [
+        ...removeErrorMessages(prev),
+        { role: "user", content },
+      ]);
+      try {
+        if (generator) await generator.generate(prompt, attachments);
+      } catch (err: any) {
+        console.error("Error generating:", err);
+        if (err?.name !== "AbortError") {
+          setMessages((prev) => [
+            ...removeErrorMessages(prev),
+            {
+              role: "assistant",
+              content: `⚠️ ${err?.message || "Unknown error"}`,
+            },
+          ]);
+        }
+      } finally {
+        // Filter memory messages from the persisted conversation (silent operation)
+        setMessages((prev) => filterMemoryMessages(prev));
+        setIsGenerating(false);
+      }
+    },
+    [getGenerator, setIsGenerating, setMessages, files],
+  );
+
+  const stop = useCallback(() => {
+    if (typewriterTimerRef.current) {
+      cancelAnimationFrame(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
+    }
+    if (thinkingTimerRef.current) {
+      cancelAnimationFrame(thinkingTimerRef.current);
+      thinkingTimerRef.current = null;
+    }
+    if (textBufferRef.current || thinkingBufferRef.current) {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.role === "assistant") {
+          return [
+            ...prev.slice(0, -1),
+            {
+              ...last,
+              content: textBufferRef.current
+                ? ((typeof last.content === "string" ? last.content : "") ||
+                    "") + textBufferRef.current
+                : last.content,
+              thinking: thinkingBufferRef.current
+                ? (last.thinking || "") + thinkingBufferRef.current
+                : last.thinking,
+            },
+          ];
+        }
+        return prev;
+      });
+      textBufferRef.current = "";
+      thinkingBufferRef.current = "";
+    }
+    generatorRef.current?.abort();
+    setIsGenerating(false);
+    createSnapshotForCurrentState();
+  }, [setIsGenerating]);
+
+  const updateFiles = useCallback(
+    (path: string, content: string) => {
+      setFiles((prev) => {
+        const next = repairStaticSiteFiles({ ...prev, [path]: content });
+        generatorRef.current?.setFiles(next);
+        return next;
+      });
+    },
+    [setFiles],
+  );
+
+  const deleteFile = useCallback(
+    (path: string) => {
+      setFiles((prev) => {
+        const next = { ...prev };
+        const prefix = path + "/";
+        for (const key of Object.keys(next)) {
+          if (key === path || key.startsWith(prefix)) {
+            delete next[key];
+          }
+        }
+        generatorRef.current?.setFiles(next);
+        return next;
+      });
+    },
+    [setFiles],
+  );
+
+  const renameFile = useCallback(
+    (oldPath: string, newPath: string) => {
+      setFiles((prev) => {
+        const next: ProjectFiles = {};
+        const prefix = oldPath + "/";
+        for (const [key, value] of Object.entries(prev)) {
+          if (key === oldPath) {
+            next[newPath] = value;
+          } else if (key.startsWith(prefix)) {
+            next[newPath + key.slice(oldPath.length)] = value;
+          } else {
+            next[key] = value;
+          }
+        }
+        generatorRef.current?.setFiles(next);
+        return next;
+      });
+    },
+    [setFiles],
+  );
+
+  const moveFile = useCallback(
+    (sourcePath: string, targetFolder: string) => {
+      const fileName = sourcePath.split("/").pop()!;
+      const newPath = targetFolder ? `${targetFolder}/${fileName}` : fileName;
+      renameFile(sourcePath, newPath);
+    },
+    [renameFile],
+  );
+
+  const retry = useCallback(async () => {
+    setIsGenerating(true);
+    // Remove error messages and incomplete tool calls (assistant tool_calls with no matching tool result)
+    setMessages((prev) => {
+      const toolResultIds = new Set(
+        prev.filter((m) => m.role === "tool").map((m) => m.tool_call_id),
+      );
+      return prev.filter((m) => {
+        if (isErrorMessage(m)) return false;
+        if (m.role === "assistant" && m.tool_calls?.length) {
+          return m.tool_calls.every((tc) => toolResultIds.has(tc.id));
+        }
+        return true;
+      });
+    });
+    try {
+      const generator = getGenerator();
+      if (generator) {
+        generator.setFiles(files);
+        // Sync messages from store (error message already removed by setMessages above)
+        const storeState = useConversationStore.getState();
+        const activeConv = storeState.activeId
+          ? storeState.conversations[storeState.activeId]
+          : null;
+        if (activeConv) {
+          generator.syncMessages(getMessagesForAPI(activeConv, settings));
+        }
+        generator.setSystemPromptSuffix(buildMemoryPromptSection());
+        await generator.retry();
+      }
+    } catch (err: any) {
+      console.error("Error retrying:", err);
+      if (err?.name !== "AbortError") {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `⚠️ ${err?.message || "Unknown error"}`,
+          },
+        ]);
+      }
+    } finally {
+      setMessages((prev) => filterMemoryMessages(prev));
+      setIsGenerating(false);
+    }
+  }, [getGenerator, setIsGenerating, setMessages, files]);
+
+  const compressContext = useCallback(async () => {
+    const storeState = useConversationStore.getState();
+    const conv = storeState.activeId
+      ? storeState.conversations[storeState.activeId]
+      : null;
+    if (!conv) return;
+
+    setIsGenerating(true);
+    try {
+      const result = await doCompress(
+        conv.messages,
+        settings.apiType,
+        settings.apiBaseUrl,
+        settings.apiKey,
+        settings.model,
+        conv.compressedContext,
+      );
+      if (result) {
+        useConversationStore.getState().setCompressedContext(result);
+      }
+    } catch (err: any) {
+      setMessages((prev) => [
+        ...removeErrorMessages(prev),
+        {
+          role: "assistant",
+          content: `⚠️ ${err?.message || "Compression failed"}`,
+        },
+      ]);
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [settings, setMessages, setIsGenerating]);
+
+  const review = useCallback(async () => {
+    await generate(
+      "Please review all project files for security vulnerabilities. Use list_files and read_files to examine the code. Report any security issues found with severity and location, or confirm no issues were detected. If issues are found, ask if I should fix them automatically.",
+    );
+  }, [generate]);
+
+  const continueTask = useCallback(async () => {
+    setIsGenerating(true);
+    try {
+      const generator = getGenerator();
+      if (generator) {
+        generator.setFiles(files);
+        const storeState = useConversationStore.getState();
+        const activeConv = storeState.activeId
+          ? storeState.conversations[storeState.activeId]
+          : null;
+        if (activeConv) {
+          generator.syncMessages(getMessagesForAPI(activeConv, settings));
+        }
+        generator.setSystemPromptSuffix(buildMemoryPromptSection());
+        await generator.generate(
+          "Please continue where you left off and complete any unfinished tasks.",
+        );
+      }
+    } catch (err: any) {
+      console.error("Error continuing:", err);
+      if (err?.name !== "AbortError") {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `⚠️ ${err?.message || "Unknown error"}`,
+          },
+        ]);
+      }
+    } finally {
+      setMessages((prev) => filterMemoryMessages(prev));
+      setIsGenerating(false);
+    }
+  }, [getGenerator, setIsGenerating, setMessages, files]);
+
+  return {
+    generate,
+    stop,
+    retry,
+    continueTask,
+    updateFiles,
+    deleteFile,
+    renameFile,
+    moveFile,
+    compressContext,
+    review,
+  };
+}

@@ -1,0 +1,314 @@
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import localforage from "localforage";
+import { useSnapshotStore } from "./snapshot";
+import type { Conversation, CompressedContext, Message, ProjectFiles } from "../types";
+
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+/** Sentinel value for the default untitled conversation title */
+export const DEFAULT_TITLE = "__new_app__";
+
+// ─── localforage storage adapter ─────────────────────────────────────────────
+
+const localforageStorage = {
+  getItem: async (name: string) => {
+    const value = await localforage.getItem<string>(name);
+    return value ?? null;
+  },
+  setItem: async (name: string, value: string) => {
+    await localforage.setItem(name, value);
+  },
+  removeItem: async (name: string) => {
+    await localforage.removeItem(name);
+  },
+};
+
+// ─── Store types ─────────────────────────────────────────────────────────────
+
+type Updater<T> = T | ((prev: T) => T);
+function applyUpdater<T>(updater: Updater<T>, prev: T): T {
+  return typeof updater === "function"
+    ? (updater as (p: T) => T)(prev)
+    : updater;
+}
+
+interface ConversationState {
+  conversations: Record<string, Conversation>;
+  activeId: string | null;
+  _hasHydrated: boolean;
+
+  createConversation: () => string;
+  deleteConversation: (id: string) => void;
+  switchConversation: (id: string) => void;
+
+  forkConversation: () => string;
+  setMessages: (updater: Updater<Message[]>) => void;
+  setFiles: (updater: Updater<ProjectFiles>) => void;
+  setTemplate: (updater: Updater<string>) => void;
+  setIsProjectInitialized: (updater: Updater<boolean>) => void;
+  setCompressedContext: (ctx: CompressedContext) => void;
+  setDeployInfo: (siteId: string, deployedUrl: string) => void;
+  renameConversation: (id: string, title: string) => void;
+  pinConversation: (id: string) => void;
+  unpinConversation: (id: string) => void;
+  archiveConversation: (id: string) => void;
+  unarchiveConversation: (id: string) => void;
+}
+
+// ─── Store ───────────────────────────────────────────────────────────────────
+
+export const useConversationStore = create<ConversationState>()(
+  persist(
+    (set, get) => ({
+      conversations: {},
+      activeId: null,
+      _hasHydrated: false,
+
+      createConversation: () => {
+        const id = crypto.randomUUID();
+        const conv: Conversation = {
+          id,
+          title: DEFAULT_TITLE,
+          messages: [],
+          files: {},
+          template: "vite-react-ts",
+          isProjectInitialized: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        set((s) => ({
+          conversations: { ...s.conversations, [id]: conv },
+          activeId: id,
+        }));
+        return id;
+      },
+
+      forkConversation: () => {
+        const s = get();
+        const src = s.activeId ? s.conversations[s.activeId] : null;
+        const id = crypto.randomUUID();
+        const conv: Conversation = {
+          id,
+          title: src ? src.title : DEFAULT_TITLE,
+          messages: src ? [...src.messages] : [],
+          files: src ? { ...src.files } : {},
+          template: src?.template ?? "vite-react-ts",
+          isProjectInitialized: src?.isProjectInitialized ?? false,
+          compressedContext: src?.compressedContext,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        set({ conversations: { ...s.conversations, [id]: conv }, activeId: id });
+        return id;
+      },
+
+      deleteConversation: (id) => {
+        useSnapshotStore.getState().deleteSnapshotsForConversation(id);
+        set((s) => {
+          const { [id]: _, ...rest } = s.conversations;
+          let nextActiveId = s.activeId;
+          if (s.activeId === id) {
+            const remaining = Object.values(rest).sort(
+              (a, b) => b.updatedAt - a.updatedAt,
+            );
+            nextActiveId = remaining[0]?.id ?? null;
+          }
+          return { conversations: rest, activeId: nextActiveId };
+        });
+      },
+
+      switchConversation: (id) => {
+        set({ activeId: id });
+      },
+
+      setMessages: (updater) => {
+        set((s) => {
+          if (!s.activeId || !s.conversations[s.activeId]) return s;
+          const conv = s.conversations[s.activeId];
+          const newMessages = applyUpdater(updater, conv.messages);
+          return {
+            conversations: {
+              ...s.conversations,
+              [s.activeId]: {
+                ...conv,
+                messages: newMessages,
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        });
+      },
+
+      setFiles: (updater) => {
+        set((s) => {
+          if (!s.activeId || !s.conversations[s.activeId]) return s;
+          const conv = s.conversations[s.activeId];
+          return {
+            conversations: {
+              ...s.conversations,
+              [s.activeId]: {
+                ...conv,
+                files: applyUpdater(updater, conv.files),
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        });
+      },
+
+      setTemplate: (updater) => {
+        set((s) => {
+          if (!s.activeId || !s.conversations[s.activeId]) return s;
+          const conv = s.conversations[s.activeId];
+          return {
+            conversations: {
+              ...s.conversations,
+              [s.activeId]: {
+                ...conv,
+                template: applyUpdater(updater, conv.template),
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        });
+      },
+
+      setIsProjectInitialized: (updater) => {
+        set((s) => {
+          if (!s.activeId || !s.conversations[s.activeId]) return s;
+          const conv = s.conversations[s.activeId];
+          return {
+            conversations: {
+              ...s.conversations,
+              [s.activeId]: {
+                ...conv,
+                isProjectInitialized: applyUpdater(
+                  updater,
+                  conv.isProjectInitialized,
+                ),
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        });
+      },
+
+      setCompressedContext: (ctx) => {
+        set((s) => {
+          if (!s.activeId || !s.conversations[s.activeId]) return s;
+          const conv = s.conversations[s.activeId];
+          return {
+            conversations: {
+              ...s.conversations,
+              [s.activeId]: { ...conv, compressedContext: ctx, updatedAt: Date.now() },
+            },
+          };
+        });
+      },
+
+      setDeployInfo: (siteId, deployedUrl) => {
+        set((s) => {
+          if (!s.activeId || !s.conversations[s.activeId]) return s;
+          const conv = s.conversations[s.activeId];
+          return {
+            conversations: {
+              ...s.conversations,
+              [s.activeId]: {
+                ...conv,
+                siteId,
+                deployedUrl,
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        });
+      },
+
+      renameConversation: (id, title) => {
+        set((s) => {
+          if (!s.conversations[id]) return s;
+          return {
+            conversations: {
+              ...s.conversations,
+              [id]: { ...s.conversations[id], title, updatedAt: Date.now() },
+            },
+          };
+        });
+      },
+
+      pinConversation: (id) => {
+        set((s) => {
+          if (!s.conversations[id]) return s;
+          return {
+            conversations: {
+              ...s.conversations,
+              [id]: { ...s.conversations[id], pinned: true, archived: false, updatedAt: Date.now() },
+            },
+          };
+        });
+      },
+
+      unpinConversation: (id) => {
+        set((s) => {
+          if (!s.conversations[id]) return s;
+          return {
+            conversations: {
+              ...s.conversations,
+              [id]: { ...s.conversations[id], pinned: false, updatedAt: Date.now() },
+            },
+          };
+        });
+      },
+
+      archiveConversation: (id) => {
+        set((s) => {
+          if (!s.conversations[id]) return s;
+          return {
+            conversations: {
+              ...s.conversations,
+              [id]: { ...s.conversations[id], archived: true, pinned: false, updatedAt: Date.now() },
+            },
+          };
+        });
+      },
+
+      unarchiveConversation: (id) => {
+        set((s) => {
+          if (!s.conversations[id]) return s;
+          return {
+            conversations: {
+              ...s.conversations,
+              [id]: { ...s.conversations[id], archived: false, updatedAt: Date.now() },
+            },
+          };
+        });
+      },
+    }),
+    {
+      name: "open-builder-conversations",
+      storage: createJSONStorage(() => localforageStorage),
+      partialize: (state) => ({
+        conversations: state.conversations,
+        activeId: state.activeId,
+      }),
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          // Migrate old hardcoded default titles to sentinel value
+          const convs = state.conversations;
+          let changed = false;
+          for (const id of Object.keys(convs)) {
+            if (convs[id].title === "新应用" || convs[id].title === "New App") {
+              convs[id] = { ...convs[id], title: DEFAULT_TITLE };
+              changed = true;
+            }
+          }
+          if (changed) {
+            useConversationStore.setState({ conversations: { ...convs } });
+          }
+        }
+        useConversationStore.setState({ _hasHydrated: true });
+      },
+    },
+  ),
+);

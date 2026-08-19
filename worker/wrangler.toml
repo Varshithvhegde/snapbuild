@@ -1,0 +1,21 @@
+name = "snapbuild-router"
+main = "src/index.ts"
+compatibility_date = "2025-08-01"
+
+[[r2_buckets]]
+binding = "SITES_BUCKET"
+bucket_name = "sharepad"
+
+[vars]
+DOMAIN = "site.sharepad.in"
+
+# Apex landing page at https://site.sharepad.in
+[[routes]]
+pattern = "site.sharepad.in"
+zone_name = "sharepad.in"
+custom_domain = true
+
+# User sites at https://{slug}.site.sharepad.in
+[[routes]]
+pattern = "*.site.sharepad.in/*"
+zone_name = "sharepad.in"

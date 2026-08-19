@@ -1,0 +1,11 @@
+{
+  "name": "@snapbuild/convex",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@convex-dev/auth": "^0.0.80",
+    "convex": "^1.21.0",
+    "esbuild": "^0.25.9"
+  }
+}
