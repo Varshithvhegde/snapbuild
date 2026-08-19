@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Snapbuild — Lovable for Phone | DIY AI Website Builder You Run Yourself</title>
+  <meta name="description" content="Snapbuild is the open-source, mobile-first AI website builder — like Lovable or v0, but built for your phone. DIY sites with chat, visual edit, and one-click deploy. Build your own stack, BYOK, self-host friendly." />
+  <meta name="keywords" content="Snapbuild, Lovable alternative, Lovable for phone, mobile website builder, DIY website builder, AI website builder, build website from phone, no-code builder, v0 alternative, Bolt alternative, open source website builder, self-hosted AI builder, build your own website, phone-first web design, chat to website, visual website editor, deploy website instantly, BYOK AI builder, Convex website builder, mobile-first landing page builder, build on your own, maker tools, indie hacker website" />
+  <meta name="author" content="Varshithvhegde" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://varshithvhegde.github.io/snapbuild/" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://varshithvhegde.github.io/snapbuild/" />
+  <meta property="og:title" content="Snapbuild — Lovable for Phone | DIY AI Website Builder" />
+  <meta property="og:description" content="Build beautiful websites from your phone. Chat with AI, edit visually, deploy in one click. Open source — run it yourself." />
+  <meta property="og:site_name" content="Snapbuild" />
+  <meta property="og:locale" content="en_US" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Snapbuild — Lovable for Phone" />
+  <meta name="twitter:description" content="DIY AI website builder for mobile. Chat → site → deploy. Open source, BYOK, build on your own." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Snapbuild",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Web, iOS, Android",
+    "description": "Mobile-first open-source AI website builder. Alternative to Lovable, v0, and Bolt — build DIY websites from your phone with chat, visual editing, and instant deploy.",
+    "url": "https://varshithvhegde.github.io/snapbuild/",
+    "downloadUrl": "https://github.com/Varshithvhegde/snapbuild",
+    "softwareVersion": "0.1.0",
+    "author": { "@type": "Person", "name": "Varshithvhegde", "url": "https://github.com/Varshithvhegde" },
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "featureList": [
+      "AI chat to website generation",
+      "Mobile-first builder UI",
+      "Visual element editor",
+      "One-click deploy to Cloudflare R2",
+      "Bring your own AI API key",
+      "Open source MIT license",
+      "8 starter templates",
+      "Self-host with Convex"
+    ]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Snapbuild",
+    "url": "https://varshithvhegde.github.io/snapbuild/",
+    "description": "Lovable for phone — DIY AI website builder you build and run on your own."
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Is Snapbuild like Lovable but for phone?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. Snapbuild is a mobile-first AI website builder inspired by tools like Lovable, v0, and Bolt — but designed so you can build and edit sites from your phone, self-host the stack, and use your own AI API keys."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I build my own website without coding?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. Describe your site in chat, pick a template, or tap elements in the visual preview. Snapbuild generates HTML/CSS and lets you deploy with one click — a true DIY no-code workflow."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is Snapbuild open source?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. Snapbuild is MIT licensed. Clone the repo, run it locally, customize the stack, and deploy on your own domain with Convex and Cloudflare."
+        }
+      }
+    ]
+  }
+  </script>
+
+  <style>
+    :root {
+      --bg: #0c0b09;
+      --surface: #161412;
+      --surface-2: #1f1c18;
+      --text: #f5f0e8;
+      --muted: #a89f92;
+      --accent: #e8ff47;
+      --accent-dim: rgba(232, 255, 71, 0.12);
+      --border: rgba(245, 240, 232, 0.08);
+      --radius: 1rem;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: "DM Sans", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    .serif { font-family: "Instrument Serif", Georgia, serif; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem; }
+
+    /* Nav */
+    nav {
+      position: sticky; top: 0; z-index: 50;
+      backdrop-filter: blur(12px);
+      background: rgba(12, 11, 9, 0.85);
+      border-bottom: 1px solid var(--border);
+    }
+    nav .wrap {
+      display: flex; align-items: center; justify-content: space-between;
+      height: 4rem;
+    }
+    .logo { font-weight: 700; font-size: 1.125rem; letter-spacing: -0.02em; color: var(--text); text-decoration: none; }
+    .logo span { color: var(--accent); }
+    .nav-links { display: none; gap: 1.5rem; font-size: 0.875rem; color: var(--muted); }
+    .nav-links a { color: var(--muted); text-decoration: none; }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+    @media (min-width: 768px) { .nav-links { display: flex; } }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+      padding: 0.75rem 1.25rem; border-radius: 999px; font-weight: 600; font-size: 0.875rem;
+      text-decoration: none !important; transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: var(--accent); color: #0c0b09; }
+    .btn-primary:hover { box-shadow: 0 0 32px rgba(232,255,71,0.35); }
+    .btn-ghost { border: 1px solid var(--border); color: var(--text); background: transparent; }
+    .btn-ghost:hover { background: var(--surface-2); }
+
+    /* Hero */
+    .hero { padding: 4rem 0 5rem; position: relative; overflow: hidden; }
+    .hero::before {
+      content: ""; position: absolute; inset: -40% -20% auto -20%; height: 70%;
+      background: radial-gradient(ellipse at 50% 0%, rgba(232,255,71,0.08) 0%, transparent 65%);
+      pointer-events: none;
+    }
+    .eyebrow {
+      display: inline-block; font-size: 0.75rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent);
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-size: clamp(2.5rem, 8vw, 4.5rem);
+      line-height: 1.05; letter-spacing: -0.03em; max-width: 14ch;
+      margin-bottom: 1.25rem;
+    }
+    .hero-lead {
+      font-size: clamp(1.05rem, 2.5vw, 1.25rem);
+      color: var(--muted); max-width: 38rem; margin-bottom: 2rem;
+    }
+    .hero-cta { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 3rem; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .pill {
+      font-size: 0.75rem; padding: 0.35rem 0.75rem; border-radius: 999px;
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
+    }
+
+    /* Phone mock */
+    .hero-grid {
+      display: grid; gap: 3rem; align-items: center;
+    }
+    @media (min-width: 960px) {
+      .hero-grid { grid-template-columns: 1fr 1fr; padding-top: 1rem; }
+    }
+    .phone {
+      margin: 0 auto; width: min(100%, 280px);
+      border-radius: 2rem; border: 3px solid #2a2722;
+      background: var(--surface); overflow: hidden;
+      box-shadow: 0 40px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+    .phone-notch {
+      height: 1.75rem; background: #0c0b09; display: flex; align-items: center; justify-content: center;
+    }
+    .phone-notch span { width: 4rem; height: 0.35rem; background: #2a2722; border-radius: 999px; }
+    .phone-screen { padding: 1rem; min-height: 320px; font-size: 0.7rem; }
+    .mock-chat {
+      background: var(--surface-2); border-radius: 0.75rem; padding: 0.75rem; margin-bottom: 0.5rem;
+      border: 1px solid var(--border);
+    }
+    .mock-chat.user { background: var(--accent-dim); border-color: rgba(232,255,71,0.2); margin-left: 1.5rem; }
+    .mock-preview {
+      margin-top: 0.75rem; border-radius: 0.75rem; overflow: hidden;
+      border: 1px solid var(--border); background: #fff; color: #111; padding: 0.5rem;
+    }
+    .mock-preview-bar { height: 0.4rem; background: var(--accent); border-radius: 2px; margin-bottom: 0.4rem; width: 60%; }
+    .mock-preview-block { height: 2rem; background: #eee; border-radius: 4px; margin-bottom: 0.35rem; }
+
+    /* Sections */
+    section { padding: 4rem 0; border-top: 1px solid var(--border); }
+    h2 { font-size: clamp(1.75rem, 4vw, 2.5rem); letter-spacing: -0.02em; margin-bottom: 0.75rem; }
+    .section-lead { color: var(--muted); max-width: 40rem; margin-bottom: 2.5rem; font-size: 1.05rem; }
+
+    .grid-3 {
+      display: grid; gap: 1rem;
+    }
+    @media (min-width: 640px) { .grid-3 { grid-template-columns: repeat(2, 1fr); } }
+    @media (min-width: 960px) { .grid-3 { grid-template-columns: repeat(3, 1fr); } }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.5rem;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .card:hover { border-color: rgba(232,255,71,0.25); transform: translateY(-2px); }
+    .card h3 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+    .card p { font-size: 0.9rem; color: var(--muted); }
+
+    /* Compare table */
+    .compare { overflow-x: auto; margin-top: 1rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; min-width: 560px; }
+    th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    td:first-child { font-weight: 500; }
+    .yes { color: var(--accent); }
+    .muted-cell { color: var(--muted); }
+
+    /* FAQ */
+    details {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1rem 1.25rem; margin-bottom: 0.75rem;
+    }
+    summary { font-weight: 600; cursor: pointer; list-style: none; }
+    summary::-webkit-details-marker { display: none; }
+    details p { margin-top: 0.75rem; color: var(--muted); font-size: 0.9rem; }
+
+    /* CTA band */
+    .cta-band {
+      background: linear-gradient(135deg, var(--accent-dim), transparent);
+      border: 1px solid rgba(232,255,71,0.2);
+      border-radius: 1.5rem; padding: 3rem 2rem; text-align: center;
+    }
+    .cta-band h2 { margin-bottom: 0.5rem; }
+
+    footer {
+      padding: 3rem 0; border-top: 1px solid var(--border);
+      font-size: 0.8rem; color: var(--muted);
+    }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: center; }
+  </style>
+</head>
+<body>
+  <nav aria-label="Main navigation">
+    <div class="wrap">
+      <a href="#" class="logo">Snap<span>build</span></a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#compare">Compare</a>
+        <a href="#diy">DIY</a>
+        <a href="#faq">FAQ</a>
+        <a href="https://github.com/Varshithvhegde/snapbuild">GitHub</a>
+      </div>
+      <a href="https://github.com/Varshithvhegde/snapbuild" class="btn btn-primary">View on GitHub</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="eyebrow">Open source · Mobile-first · BYOK</p>
+        <h1 class="serif"><em>Lovable</em> for your phone — build sites <em>your</em> way</h1>
+        <p class="hero-lead">
+          Snapbuild is a DIY AI website builder you run yourself. Chat to generate pages, tap to edit visually,
+          deploy instantly — all from mobile or desktop. No vendor lock-in. Your keys. Your domain. Your stack.
+        </p>
+        <div class="hero-cta">
+          <a href="https://github.com/Varshithvhegde/snapbuild" class="btn btn-primary">Build on your own →</a>
+          <a href="#features" class="btn btn-ghost">See how it works</a>
+        </div>
+        <div class="pill-row" aria-label="Keywords">
+          <span class="pill">Lovable alternative</span>
+          <span class="pill">Phone website builder</span>
+          <span class="pill">DIY no-code</span>
+          <span class="pill">v0 / Bolt style</span>
+          <span class="pill">Self-hosted</span>
+          <span class="pill">Chat to website</span>
+        </div>
+      </div>
+      <div class="phone" aria-hidden="true">
+        <div class="phone-notch"><span></span></div>
+        <div class="phone-screen">
+          <div class="mock-chat user">Build me a portfolio for my photography</div>
+          <div class="mock-chat">✓ Generated index.html · 3 sections · deployed</div>
+          <div class="mock-preview">
+            <div class="mock-preview-bar"></div>
+            <div class="mock-preview-block"></div>
+            <div class="mock-preview-block" style="width:80%"></div>
+            <div class="mock-preview-block" style="width:65%; background:#e8ff47; opacity:0.5"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section id="features" aria-labelledby="features-heading">
+      <div class="wrap">
+        <h2 id="features-heading">Everything you need to <span class="serif">build from anywhere</span></h2>
+        <p class="section-lead">
+          Whether you're on the couch with your phone or at a desk — Snapbuild gives you AI generation,
+          live preview, visual editing, and one-click deploy. A true maker tool for indie hackers, founders, and DIY builders.
+        </p>
+        <div class="grid-3">
+          <article class="card">
+            <h3>💬 AI chat → website</h3>
+            <p>Describe your idea like Lovable or v0. Snapbuild generates clean HTML/CSS with shadcn-style components — optimized for mobile preview and fast iteration.</p>
+          </article>
+          <article class="card">
+            <h3>📱 Built for phone first</h3>
+            <p>The only AI website builder designed for thumb-driven workflows. Edit on your phone, share a link, deploy from anywhere — not just desktop.</p>
+          </article>
+          <article class="card">
+            <h3>👆 Visual tap-to-edit</h3>
+            <p>Select any element in the live preview and tell the AI what to change. No hunting through code — perfect for non-developers and quick DIY tweaks.</p>
+          </article>
+          <article class="card">
+            <h3>🚀 One-click deploy</h3>
+            <p>Publish to Cloudflare R2 with a custom subdomain. Static sites that load fast worldwide — no complex DevOps required.</p>
+          </article>
+          <article class="card">
+            <h3>🔑 Bring your own key</h3>
+            <p>Use OpenAI, Anthropic, Gemini, or Inception Labs Mercury. You control cost and model choice — not a locked SaaS subscription.</p>
+          </article>
+          <article class="card">
+            <h3>🛠 Build on your own</h3>
+            <p>MIT licensed. Fork it, self-host with Convex, customize the worker, add your branding. Full stack transparency — not a black box.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="compare" aria-labelledby="compare-heading">
+      <div class="wrap">
+        <h2 id="compare-heading">How Snapbuild <span class="serif">compares</span></h2>
+        <p class="section-lead">
+          Looking for a Lovable alternative, v0 for mobile, or a DIY website builder you actually own?
+          Snapbuild fills the gap for phone-first, self-hosted, open-source building.
+        </p>
+        <div class="compare">
+          <table>
+            <thead>
+              <tr>
+                <th>Feature</th>
+                <th>Snapbuild</th>
+                <th>Lovable</th>
+                <th>Typical SaaS builder</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Mobile-first builder UI</td><td class="yes">✓ Yes</td><td class="muted-cell">Desktop focus</td><td class="muted-cell">Varies</td></tr>
+              <tr><td>Open source (MIT)</td><td class="yes">✓ Yes</td><td class="muted-cell">No</td><td class="muted-cell">No</td></tr>
+              <tr><td>Self-host / build your own</td><td class="yes">✓ Yes</td><td class="muted-cell">No</td><td class="muted-cell">Rare</td></tr>
+              <tr><td>Bring your own AI key</td><td class="yes">✓ Yes</td><td class="muted-cell">Subscription</td><td class="muted-cell">Subscription</td></tr>
+              <tr><td>AI chat to code</td><td class="yes">✓ Yes</td><td class="yes">✓ Yes</td><td class="muted-cell">Limited</td></tr>
+              <tr><td>Visual element picker</td><td class="yes">✓ Yes</td><td class="yes">✓ Yes</td><td class="muted-cell">Varies</td></tr>
+              <tr><td>Custom domain deploy</td><td class="yes">✓ R2 + Worker</td><td class="yes">✓ Hosted</td><td class="yes">✓ Hosted</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="diy" aria-labelledby="diy-heading">
+      <div class="wrap">
+        <h2 id="diy-heading">DIY website building, <span class="serif">done right</span></h2>
+        <p class="section-lead">
+          Snapbuild is for makers who want the magic of AI builders like Lovable, Bolt, and v0 —
+          but need to run it themselves, customize the stack, and build from a phone when inspiration strikes.
+        </p>
+        <div class="grid-3">
+          <article class="card">
+            <h3>For indie hackers</h3>
+            <p>Ship landing pages and MVPs in minutes. No monthly builder fee — just your AI API usage and cheap Cloudflare hosting.</p>
+          </article>
+          <article class="card">
+            <h3>For mobile creators</h3>
+            <p>Build a link-in-bio, portfolio, or promo site while commuting. Phone-native chat and preview — not a shrunken desktop app.</p>
+          </article>
+          <article class="card">
+            <h3>For developers</h3>
+            <p>React + Convex + Sandpack under the hood. Extend tools, fix prompts, add models — full source on GitHub.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="stack" aria-labelledby="stack-heading">
+      <div class="wrap">
+        <h2 id="stack-heading">Stack you <span class="serif">control</span></h2>
+        <p class="section-lead">
+          Built on proven open tools — not a walled garden. Clone, configure, deploy on your own infrastructure.
+        </p>
+        <div class="pill-row">
+          <span class="pill">React + Vite</span>
+          <span class="pill">Convex backend</span>
+          <span class="pill">Cloudflare R2</span>
+          <span class="pill">Sandpack preview</span>
+          <span class="pill">Tailwind + shadcn tokens</span>
+          <span class="pill">AI SDK (multi-provider)</span>
+          <span class="pill">MIT license</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq" aria-labelledby="faq-heading">
+      <div class="wrap">
+        <h2 id="faq-heading">Frequently asked <span class="serif">questions</span></h2>
+        <details>
+          <summary>Is Snapbuild a Lovable alternative for phone?</summary>
+          <p>Yes. Snapbuild offers a similar AI chat-to-website experience as Lovable, v0, and Bolt, but with a mobile-first interface, open-source code, BYOK AI keys, and self-hosting — so you build on your own terms.</p>
+        </details>
+        <details>
+          <summary>Can I build a website without coding?</summary>
+          <p>Absolutely. Use templates, chat with AI, or tap elements in the preview to edit. Snapbuild is a DIY no-code website builder — code is generated for you and you can deploy with one click.</p>
+        </details>
+        <details>
+          <summary>Do I need to pay for Snapbuild?</summary>
+          <p>Snapbuild is free and open source (MIT). You pay only for your AI API usage, Convex free tier, and Cloudflare R2/Workers — typically pennies at small scale.</p>
+        </details>
+        <details>
+          <summary>Can I deploy to my own domain?</summary>
+          <p>Yes. Configure Cloudflare Worker + R2 and point your wildcard DNS. Sites publish to <code>{slug}.yourdomain.com</code> — full control, no platform lock-in.</p>
+        </details>
+        <details>
+          <summary>How is this different from Wix or Squarespace?</summary>
+          <p>Traditional DIY builders are drag-and-drop with rigid templates. Snapbuild uses AI to generate custom sites from conversation, gives you the source code, and lets you self-host — closer to Lovable/v0 than classic no-code platforms.</p>
+        </details>
+      </div>
+    </section>
+
+    <section aria-labelledby="cta-heading">
+      <div class="wrap">
+        <div class="cta-band">
+          <h2 id="cta-heading" class="serif">Start building on your own</h2>
+          <p style="color: var(--muted); margin-bottom: 1.5rem; max-width: 32rem; margin-inline: auto;">
+            Clone Snapbuild, run it locally in minutes, and ship your first AI-built site from your phone.
+          </p>
+          <a href="https://github.com/Varshithvhegde/snapbuild" class="btn btn-primary">github.com/Varshithvhegde/snapbuild</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <p>© 2026 Snapbuild · MIT License · Built by <a href="https://github.com/Varshithvhegde">Varshithvhegde</a></p>
+      <p>
+        <a href="https://github.com/Varshithvhegde/snapbuild">GitHub</a> ·
+        <a href="https://varshithvhegde.github.io/snapbuild/">Home</a> ·
+        <a href="sitemap.xml">Sitemap</a>
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -2,6 +2,8 @@
 
 **AI-powered mobile website builder** — build beautiful sites from your phone, edit visually or via chat, deploy instantly, share with a link.
 
+🌐 **Live site:** [varshithvhegde.github.io/snapbuild](https://varshithvhegde.github.io/snapbuild)
+
 Built on [Open Builder](https://github.com/Amery2010/open-builder) + [Convex](https://convex.dev) + Cloudflare R2.
 
 ## Features
